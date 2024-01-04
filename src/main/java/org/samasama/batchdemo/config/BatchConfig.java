@@ -1,11 +1,13 @@
 package org.samasama.batchdemo.config;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.samasama.batchdemo.subject.Subject;
 import org.samasama.batchdemo.subject.SubjectProcessor;
 import org.samasama.batchdemo.subject.SubjectRepository;
 import org.springframework.batch.core.Job;
 import org.springframework.batch.core.Step;
+import org.springframework.batch.core.configuration.annotation.EnableBatchProcessing;
 import org.springframework.batch.core.job.builder.JobBuilder;
 import org.springframework.batch.core.repository.JobRepository;
 import org.springframework.batch.core.step.builder.StepBuilder;
@@ -18,10 +20,16 @@ import org.springframework.batch.item.file.transform.DelimitedLineTokenizer;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.io.FileSystemResource;
+import org.springframework.core.task.TaskExecutor;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 import org.springframework.transaction.PlatformTransactionManager;
 
+import java.lang.management.ManagementFactory;
+
+@Slf4j
 @Configuration
 @RequiredArgsConstructor
+@EnableBatchProcessing
 public class BatchConfig {
     private final SubjectRepository subjectRepository;
     private final JobRepository jobRepository;
@@ -54,11 +62,30 @@ public class BatchConfig {
     @Bean
     Step importStep() {
         return new StepBuilder("csvImport", jobRepository)
-                .<Subject, Subject>chunk(10, platformTransactionManager)
+                .<Subject, Subject>chunk(1000, platformTransactionManager)
+                .taskExecutor(taskExecutor())
                 .reader(itemReader())
                 .processor(processor())
                 .writer(writer())
                 .build();
+    }
+
+    @Bean
+    TaskExecutor taskExecutor() {
+        log.info("The amount of threads in this machine: {}", ManagementFactory.getOperatingSystemMXBean().getAvailableProcessors());
+//        SimpleAsyncTaskExecutor simpleAsyncTaskExecutor = new SimpleAsyncTaskExecutor();
+//        simpleAsyncTaskExecutor.setConcurrencyLimit(ManagementFactory.getOperatingSystemMXBean().getAvailableProcessors());
+//        return simpleAsyncTaskExecutor;
+
+
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(ManagementFactory.getOperatingSystemMXBean().getAvailableProcessors()); // Adjust the core pool size as needed
+        executor.setMaxPoolSize(ManagementFactory.getOperatingSystemMXBean().getAvailableProcessors()); // Adjust the max pool size as needed
+//        executor.setCorePoolSize(12); // Adjust the core pool size as needed
+//        executor.setMaxPoolSize(12); // Adjust the max pool size as needed
+        executor.setThreadNamePrefix("csv-import-thread-");
+        executor.initialize();
+        return executor;
     }
 
     @Bean
